@@ -67,7 +67,7 @@
     </style>
 </head>
 <body>
-    <h2>Compare 2 Excel</h2>
+    <h2>Compare 2 Excel (Multi Key & Multi Compare Column)</h2>
     <p><small>Upload dua file Excel, pilih sheet, tentukan key dan kolom yang dibandingkan, lalu klik Compare.</small></p>
 
     <!-- loader -->
@@ -153,7 +153,7 @@
     <div class="section">
         <h3>Hasil Perbandingan</h3>
         <div id="resultInfo"><small>Belum ada hasil.</small></div>
-        <br>
+
         <label for="exportFilter"><small>Filter saat export/tampil:</small></label>
         <select id="exportFilter">
             <option value="ALL">Semua (SAME + DIFF + ONLY_FILE1 + ONLY_FILE2)</option>
@@ -163,7 +163,7 @@
             <option value="SAME">Hanya SAME</option>
         </select>
 
-        <button id="btnExportExcel" class="success hidden" type="button">📥 Export ke Excel</button>
+        <button id="btnExportExcel" class="success hidden" type="button">📥 Export ke Excel (dengan warna)</button>
 
         <div id="resultTable"></div>
 
@@ -219,7 +219,7 @@
         function showLoader() { loaderOverlay.classList.remove('hidden'); }
         function hideLoader() { loaderOverlay.classList.add('hidden'); }
 
-        // pagination elements
+        // pagination
         const paginationBar = document.getElementById('paginationBar');
         const pageSizeSelect = document.getElementById('pageSizeSelect');
         const btnPrevPage = document.getElementById('btnPrevPage');
@@ -230,14 +230,15 @@
         let data2 = [];
         let headers1 = [];
         let headers2 = [];
-        let rowsOutput = [];      // semua hasil
-        let rowsFiltered = [];    // hasil yang sudah difilter (ALL/DIFF/...)
+        let rowsOutput = [];
+        let rowsFiltered = [];
         let outputHeaders = [];
 
         let wb1 = null;
         let wb2 = null;
 
-        // pagination state
+        let cmpPairsGlobal = [];   // untuk total F1/F2
+
         let pageSize = 100;
         let currentPage = 1;
 
@@ -256,8 +257,8 @@
                 }
             };
             reader.onerror = () => {
-                hideLoader();
-                alert('Gagal membaca file.');
+            hideLoader();
+            alert('Gagal membaca file.');
             };
             reader.readAsArrayBuffer(file);
         }
@@ -413,8 +414,105 @@
             return keyCols.map(k => String(row[k] ?? '')).join('||');
         }
 
+        // ===== TOTAL (otomatis sum vs count) =====
+        function computeTotalsForFilteredRows() {
+            const totals = {};
+            if (!rowsFiltered.length || !outputHeaders.length || !cmpPairsGlobal.length) return totals;
+
+            const headerToPair = {};
+            cmpPairsGlobal.forEach(p => {
+                const hdr = `${p.f1} | ${p.f2}`;
+                headerToPair[hdr] = p;
+            });
+
+            outputHeaders.forEach(h => { totals[h] = ''; });
+
+            Object.keys(headerToPair).forEach(hdr => {
+                let sumF1 = 0, sumF2 = 0;
+                let cntF1 = 0, cntF2 = 0;
+
+                // sampling 20 baris pertama untuk deteksi numeric
+                let sampleNumeric = 0, sampleTotal = 0;
+                rowsFiltered.slice(0, 20).forEach(obj => {
+                    const raw = obj.row[hdr];
+                    if (raw == null || raw === '') return;
+
+                    let values = [];
+                    if (typeof raw === 'string' && raw.includes('[F1]')) {
+                        const m1 = raw.match(/\[F1\](.*?)(\||\]|$)/i);
+                        const m2 = raw.match(/\[F2\](.*)$/i);
+                        if (m1 && m1[1]) values.push(m1[1].trim());
+                        if (m2 && m2[1]) values.push(m2[1].trim());
+                    } else {
+                        values.push(String(raw));
+                    }
+
+                    values.forEach(v => {
+                        const numStr = v.replace(/[^0-9.\-]/g, '');
+                        const hasLetters = /[a-z]/i.test(v);
+                        const num = Number(numStr);
+                        if (!hasLetters && numStr !== '' && !isNaN(num)) sampleNumeric++;
+                        sampleTotal++;
+                    });
+                });
+
+                const treatAsNumeric = sampleTotal > 0 && sampleNumeric / sampleTotal > 0.8;
+
+                rowsFiltered.forEach(obj => {
+                    const raw = obj.row[hdr];
+                    if (raw == null || raw === '') return;
+
+                    let v1 = null, v2 = null;
+
+                    if (typeof raw === 'string' && raw.includes('[F1]')) {
+                        const m1 = raw.match(/\[F1\](.*?)(\||\]|$)/i);
+                        const m2 = raw.match(/\[F2\](.*)$/i);
+                        if (m1 && m1[1]) v1 = m1[1].trim();
+                        if (m2 && m2[1]) v2 = m2[1].trim();
+                    } else {
+                        if (obj.row.source === 'ONLY_FILE1') {
+                            v1 = String(raw);
+                        } else if (obj.row.source === 'ONLY_FILE2') {
+                            v2 = String(raw);
+                        } else { // SAME
+                            v1 = String(raw);
+                            v2 = String(raw);
+                        }
+                    }
+
+                    if (v1 !== null && v1 !== '') {
+                        if (treatAsNumeric) {
+                            const numStr = v1.replace(/[^0-9.\-]/g, '');
+                            const num = Number(numStr);
+                            if (!isNaN(num) && numStr !== '') sumF1 += num;
+                        }
+                        cntF1++;
+                    }
+                    if (v2 !== null && v2 !== '') {
+                        if (treatAsNumeric) {
+                            const numStr = v2.replace(/[^0-9.\-]/g, '');
+                            const num = Number(numStr);
+                            if (!isNaN(num) && numStr !== '') sumF2 += num;
+                        }
+                        cntF2++;
+                    }
+                });
+
+                if (treatAsNumeric) {
+                    totals[hdr] = `[F1] ${sumF1} | [F2] ${sumF2}`;
+                } else {
+                    totals[hdr] = `[F1] ${cntF1} | [F2] ${cntF2}`;
+                }
+            });
+
+            return totals;
+        }
+
         function renderTable(filteredRowsPage) {
             if (!outputHeaders.length) { resultTable.innerHTML = ''; return; }
+
+            const totals = computeTotalsForFilteredRows();
+
             let html = '<table><thead><tr>';
             outputHeaders.forEach(h => { html += `<th>${h}</th>`; });
             html += '</tr></thead><tbody>';
@@ -432,6 +530,18 @@
                 });
                 html += '</tr>';
             });
+
+            // baris TOTAL
+            html += '<tr style="font-weight:bold;background:#f9f9f9">';
+            outputHeaders.forEach(h => {
+                if (h === 'source') html += '<td>TOTAL</td>';
+                else if (h === 'key_value') html += '<td></td>';
+                else {
+                    const v = totals[h] ?? '';
+                    html += `<td>${v}</td>`;
+                }
+            });
+            html += '</tr>';
 
             html += '</tbody></table>';
             resultTable.innerHTML = html;
@@ -516,6 +626,7 @@
             }
 
             const cmpPairs = cmpCols1.map((c1, i) => ({ f1: c1, f2: cmpCols2[i] }));
+            cmpPairsGlobal = cmpPairs;
             showLoader();
 
             setTimeout(() => {
@@ -574,7 +685,6 @@
 
                     } else if (r1 && r2) {
                         let hasRealDiff = false;
-                        let hasMissingOnly = false;
 
                         row['source'] = 'SAME';
                         row['key_value'] = k;
@@ -592,11 +702,9 @@
                             if (exists1 && !exists2) {
                                 row[hdr] = v1 ?? '';
                                 cellStatus[hdr] = 'only1';
-                                hasMissingOnly = true;
                             } else if (!exists1 && exists2) {
                                 row[hdr] = v2 ?? '';
                                 cellStatus[hdr] = 'only2';
-                                hasMissingOnly = true;
                             } else if (exists1 && exists2) {
                                 if (v1 === v2) {
                                     row[hdr] = v1 ?? '';
@@ -632,7 +740,7 @@
 
                 btnExportExcel.classList.remove('hidden');
 
-                applyFilterToRows();   // set rowsFiltered + render halaman 1
+                applyFilterToRows();
 
                 hideLoader();
             }, 10);
@@ -643,13 +751,11 @@
             applyFilterToRows();
         });
 
-        // ====== EXPORT EXCEL (semua rowsFiltered, tidak terpengaruh pagination) ======
+        // ====== EXPORT EXCEL ======
         btnExportExcel.addEventListener('click', () => {
             if (!rowsOutput.length) { alert('Tidak ada data untuk diexport.'); return; }
 
-            // gunakan rowsFiltered penuh, bukan hanya halaman aktif
             const rowsForExport = rowsFiltered.length ? rowsFiltered : rowsOutput;
-
             if (!rowsForExport.length) {
                 alert('Tidak ada baris yang cocok dengan filter export.');
                 return;
@@ -662,6 +768,14 @@
                 outputHeaders.forEach(h => row.push(obj.row[h] ?? ''));
                 dataExport.push(row);
             });
+
+            const totals = computeTotalsForFilteredRows();
+            const totalRow = outputHeaders.map(h => {
+                if (h === 'source') return 'TOTAL';
+                if (h === 'key_value') return '';
+                return totals[h] ?? '';
+            });
+            dataExport.push(totalRow);
 
             const ws = XLSX.utils.aoa_to_sheet(dataExport);
             const wb = XLSX.utils.book_new();
@@ -698,6 +812,16 @@
                 rowIndex++;
             });
 
+            const totalRowIndex = dataExport.length - 1;
+            for (let c = 0; c < outputHeaders.length; c++) {
+                const cellRef = XLSX.utils.encode_cell({ r: totalRowIndex, c });
+                if (!ws[cellRef]) continue;
+                ws[cellRef].s = {
+                    fill: { fgColor: { rgb: 'F9F9F9' } },
+                    font: { bold: true }
+                };
+            }
+
             const filterValue = exportFilter.value;
             const fileName = `compare_result_${filterValue}_${new Date().getTime()}.xlsx`;
             XLSX.writeFile(wb, fileName);
@@ -714,6 +838,7 @@
             outputHeaders = [];
             wb1 = null;
             wb2 = null;
+            cmpPairsGlobal = [];
             file1Input.value = '';
             file2Input.value = '';
             key1Container.innerHTML = '';
