@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compare 2 Excel - Split F1 F2 Columns</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1300px; margin: 0 auto; padding: 20px; }
+        h2 { margin-bottom: 5px; }
+        .section { border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 4px; }
+        .upload-row { display: flex; gap: 10px; }
+        .upload-col { width: 50%; }
+        .upload-area { border: 2px dashed #ccc; padding: 12px; text-align: center; cursor: pointer; margin-bottom: 10px; }
+        .upload-area.dragover { border-color: #007bff; background: #f8f9fa; }
+        .hidden { display: none; }
+        label { font-weight: bold; margin-right: 6px; }
+        select { padding: 4px 6px; margin-right: 4px; margin-bottom: 4px; }
+        button { background: #007bff; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-right: 6px; }
+        button:hover { background: #0056b3; }
+        button.danger { background: #dc3545; }
+        button.danger:hover { background: #c82333; }
+        button.success { background: #28a745; }
+        button.success:hover { background: #218838; }
+        table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 13px; }
+        th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+        th { background: #f2f2f2; }
+        .only1-row { background: #e6f2ff; }
+        .only2-row { background: #e6ffe6; }
+        .diff-row  { background: #ffe6e6; }
+        small { color: #555; }
+
+        /* loader */
+        #loaderOverlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.65);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        #loaderOverlay.hidden { display: none; }
+        .spinner {
+            width: 42px;
+            height: 42px;
+            border: 4px solid #ccc;
+            border-top-color: #007bff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* pagination */
+        #paginationBar {
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        #paginationBar button {
+            padding: 4px 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Compare 2 Excel (Kolom F1 & F2 Terpisah)</h2>
+    <p><small>Upload dua file Excel, pilih sheet, tentukan key dan kolom yang dibandingkan, lalu klik Compare.</small></p>
+
+    <!-- loader -->
+    <div id="loaderOverlay" class="hidden">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- FILE 1 & FILE 2 -->
+    <div class="section upload-row">
+        <div class="upload-col">
+            <h3>File 1</h3>
+            <div id="upload1" class="upload-area">
+                <input type="file" id="file1" accept=".xlsx,.xls,.csv" class="hidden">
+                <p>Klik atau drag & drop untuk memilih File 1</p>
+            </div>
+            <p id="info1"><small>Belum ada file.</small></p>
+
+            <div id="sheet1Wrapper" class="hidden">
+                <label for="sheet1Select"><small>Pilih sheet File 1:</small></label>
+                <select id="sheet1Select"></select>
+                <button type="button" id="loadSheet1">Muat sheet F1</button>
+            </div>
+        </div>
+
+        <div class="upload-col">
+            <h3>File 2</h3>
+            <div id="upload2" class="upload-area">
+                <input type="file" id="file2" accept=".xlsx,.xls,.csv" class="hidden">
+                <p>Klik atau drag & drop untuk memilih File 2</p>
+            </div>
+            <p id="info2"><small>Belum ada file.</small></p>
+
+            <div id="sheet2Wrapper" class="hidden">
+                <label for="sheet2Select"><small>Pilih sheet File 2:</small></label>
+                <select id="sheet2Select"></select>
+                <button type="button" id="loadSheet2">Muat sheet F2</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PENGATURAN KEY -->
+    <div class="section">
+        <h3>Pengaturan Key</h3>
+
+        <div>
+            <label>Key File 1:</label>
+            <div id="key1Container" style="display:inline-block;"></div>
+            <button id="btnAddKey1" type="button">+ Tambah key F1</button>
+        </div>
+        <br>
+        <div>
+            <label>Key File 2:</label>
+            <div id="key2Container" style="display:inline-block;"></div>
+            <button id="btnAddKey2" type="button">+ Tambah key F2</button>
+        </div>
+
+        <p><small>Minimal 1 key untuk tiap file dan jumlah key F1 harus sama dengan F2. Nilai key digabung dengan pemisah "||".</small></p>
+    </div>
+
+    <!-- PENGATURAN KOLOM COMPARE -->
+    <div class="section">
+        <h3>Kolom yang dibandingkan</h3>
+
+        <div>
+            <label>Kolom compare File 1:</label>
+            <div id="cmp1Container" style="display:inline-block;"></div>
+            <button id="btnAddCmp1" type="button">+ Tambah kolom F1</button>
+        </div>
+        <br>
+        <div>
+            <label>Kolom compare File 2:</label>
+            <div id="cmp2Container" style="display:inline-block;"></div>
+            <button id="btnAddCmp2" type="button">+ Tambah kolom F2</button>
+        </div>
+
+        <p><small>Jumlah kolom compare F1 dan F2 harus sama (dipasangkan 1‑1 sesuai urutan). Kolom hasil akan muncul sebagai <b>NamaKolomF1__F1</b> dan <b>NamaKolomF2__F2</b>.</small></p>
+
+        <button id="btnCompare" type="button">Compare</button>
+        <button id="btnReset" type="button" class="danger">Reset</button>
+    </div>
+
+    <!-- HASIL -->
+    <div class="section">
+        <h3>Hasil Perbandingan</h3>
+        <div id="resultInfo"><small>Belum ada hasil.</small></div>
+
+        <label for="exportFilter"><small>Filter saat export/tampil:</small></label>
+        <select id="exportFilter">
+            <option value="ALL">Semua (SAME + DIFF + ONLY_FILE1 + ONLY_FILE2)</option>
+            <option value="DIFF">Hanya DIFF</option>
+            <option value="ONLY_FILE1">Hanya ONLY_FILE1</option>
+            <option value="ONLY_FILE2">Hanya ONLY_FILE2</option>
+            <option value="SAME">Hanya SAME</option>
+        </select>
+
+        <button id="btnExportExcel" class="success hidden" type="button">📥 Export ke Excel (dengan warna)</button>
+
+        <div id="resultTable"></div>
+
+        <!-- pagination control -->
+        <div id="paginationBar" class="hidden">
+            <label for="pageSizeSelect"><small>Tampilkan per halaman:</small></label>
+            <select id="pageSizeSelect">
+                <option value="10">10</option>
+                <option value="100" selected>100</option>
+                <option value="1000">1000</option>
+                <option value="10000">10000</option>
+            </select>
+
+            <button id="btnPrevPage" type="button">&laquo; Prev</button>
+            <button id="btnNextPage" type="button">Next &raquo;</button>
+            <span id="pageInfo"><small>Halaman 0 / 0</small></span>
+        </div>
+    </div>
+
+    <script>
+        const upload1 = document.getElementById('upload1');
+        const upload2 = document.getElementById('upload2');
+        const file1Input = document.getElementById('file1');
+        const file2Input = document.getElementById('file2');
+        const info1 = document.getElementById('info1');
+        const info2 = document.getElementById('info2');
+
+        const sheet1Wrapper = document.getElementById('sheet1Wrapper');
+        const sheet2Wrapper = document.getElementById('sheet2Wrapper');
+        const sheet1Select = document.getElementById('sheet1Select');
+        const sheet2Select = document.getElementById('sheet2Select');
+        const loadSheet1Btn = document.getElementById('loadSheet1');
+        const loadSheet2Btn = document.getElementById('loadSheet2');
+
+        const btnCompare = document.getElementById('btnCompare');
+        const btnReset = document.getElementById('btnReset');
+        const btnExportExcel = document.getElementById('btnExportExcel');
+        const exportFilter = document.getElementById('exportFilter');
+        const resultInfo = document.getElementById('resultInfo');
+        const resultTable = document.getElementById('resultTable');
+
+        const key1Container = document.getElementById('key1Container');
+        const key2Container = document.getElementById('key2Container');
+        const btnAddKey1 = document.getElementById('btnAddKey1');
+        const btnAddKey2 = document.getElementById('btnAddKey2');
+
+        const cmp1Container = document.getElementById('cmp1Container');
+        const cmp2Container = document.getElementById('cmp2Container');
+        const btnAddCmp1 = document.getElementById('btnAddCmp1');
+        const btnAddCmp2 = document.getElementById('btnAddCmp2');
+
+        const loaderOverlay = document.getElementById('loaderOverlay');
+        function showLoader() { loaderOverlay.classList.remove('hidden'); }
+        function hideLoader() { loaderOverlay.classList.add('hidden'); }
+
+        // pagination
+        const paginationBar = document.getElementById('paginationBar');
+        const pageSizeSelect = document.getElementById('pageSizeSelect');
+        const btnPrevPage = document.getElementById('btnPrevPage');
+        const btnNextPage = document.getElementById('btnNextPage');
+        const pageInfo = document.getElementById('pageInfo');
+
+        let data1 = [];
+        let data2 = [];
+        let headers1 = [];
+        let headers2 = [];
+        let rowsOutput = [];
+        let rowsFiltered = [];
+        let outputHeaders = [];
+
+        let wb1 = null;
+        let wb2 = null;
+
+        // cmpPairsGlobal: {f1, f2, hdrF1, hdrF2}
+        let cmpPairsGlobal = [];
+
+        let pageSize = 100;
+        let currentPage = 1;
+
+        function parseWorkbook(file, cb) {
+            showLoader();
+            const reader = new FileReader();
+            reader.onload = e => {
+                try {
+                    const arr = new Uint8Array(e.target.result);
+                    const wb = XLSX.read(arr, { type: 'array', cellDates: true, cellText: false });
+                    hideLoader();
+                    cb(wb);
+                } catch (err) {
+                    hideLoader();
+                    alert('Gagal membaca file: ' + err.message);
+                }
+            };
+            reader.onerror = () => {
+                hideLoader();
+                alert('Gagal membaca file.');
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function loadSheetToData(wb, sheetName) {
+            const ws = wb.Sheets[sheetName];
+            const rows = XLSX.utils.sheet_to_json(ws, {
+                defval: null,
+                raw: false,
+                dateNF: 'dd/mm/yyyy'
+            });
+            const headers = rows.length ? Object.keys(rows[0]) : [];
+            return { rows, headers };
+        }
+
+        function createSelect(headers, cssClassPrefix, container, minKeep = 1) {
+            const wrapper = document.createElement('span');
+            wrapper.style.marginRight = '6px';
+
+            const sel = document.createElement('select');
+            sel.className = cssClassPrefix;
+            headers.forEach(h => {
+                const opt = document.createElement('option');
+                opt.value = h;
+                opt.textContent = h;
+                sel.appendChild(opt);
+            });
+
+            const btnRemove = document.createElement('button');
+            btnRemove.type = 'button';
+            btnRemove.textContent = '🗑';
+            btnRemove.style.marginLeft = '3px';
+            btnRemove.onclick = () => {
+                if (container.querySelectorAll('select.' + cssClassPrefix).length > minKeep) {
+                    container.removeChild(wrapper);
+                }
+            };
+
+            wrapper.appendChild(sel);
+            wrapper.appendChild(btnRemove);
+            return wrapper;
+        }
+
+        function initKeySelectors() {
+            key1Container.innerHTML = '';
+            key2Container.innerHTML = '';
+            if (headers1.length) key1Container.appendChild(createSelect(headers1, 'f1-key', key1Container));
+            if (headers2.length) key2Container.appendChild(createSelect(headers2, 'f2-key', key2Container));
+        }
+
+        function initCompareSelectors() {
+            cmp1Container.innerHTML = '';
+            cmp2Container.innerHTML = '';
+            if (headers1.length) cmp1Container.appendChild(createSelect(headers1, 'c1-cmp', cmp1Container));
+            if (headers2.length) cmp2Container.appendChild(createSelect(headers2, 'c2-cmp', cmp2Container));
+        }
+
+        function setupUpload(areaEl, inputEl, onWorkbookLoaded, infoEl, sheetWrapper, sheetSelect) {
+            areaEl.addEventListener('click', () => inputEl.click());
+            areaEl.addEventListener('dragover', e => {
+                e.preventDefault();
+                areaEl.classList.add('dragover');
+            });
+            areaEl.addEventListener('dragleave', () => {
+                areaEl.classList.remove('dragover');
+            });
+            areaEl.addEventListener('drop', e => {
+                e.preventDefault();
+                areaEl.classList.remove('dragover');
+                if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files[0]);
+            });
+            inputEl.addEventListener('change', e => {
+                if (e.target.files.length) handleFileUpload(e.target.files[0]);
+            });
+
+            function handleFileUpload(file) {
+                parseWorkbook(file, wb => {
+                    onWorkbookLoaded(wb);
+                    const names = wb.SheetNames;
+                    sheetSelect.innerHTML = '';
+                    names.forEach(n => {
+                        const opt = document.createElement('option');
+                        opt.value = n;
+                        opt.textContent = n;
+                        sheetSelect.appendChild(opt);
+                    });
+                    sheetWrapper.classList.remove('hidden');
+                    infoEl.innerHTML = `<small>File memiliki ${names.length} sheet. Pilih sheet lalu klik "Muat sheet".</small>`;
+                });
+            }
+        }
+
+        setupUpload(upload1, file1Input, wb => { wb1 = wb; }, info1, sheet1Wrapper, sheet1Select);
+        setupUpload(upload2, file2Input, wb => { wb2 = wb; }, info2, sheet2Wrapper, sheet2Select);
+
+        loadSheet1Btn.addEventListener('click', () => {
+            if (!wb1) { alert('Upload File 1 terlebih dahulu.'); return; }
+            showLoader();
+            setTimeout(() => {
+                const sName = sheet1Select.value;
+                const { rows, headers } = loadSheetToData(wb1, sName);
+                data1 = rows;
+                headers1 = headers;
+                info1.innerHTML = `<small>Sheet F1: <b>${sName}</b> | Baris: ${rows.length} | Kolom: ${headers.length}</small>`;
+                initKeySelectors();
+                initCompareSelectors();
+                hideLoader();
+            }, 10);
+        });
+
+        loadSheet2Btn.addEventListener('click', () => {
+            if (!wb2) { alert('Upload File 2 terlebih dahulu.'); return; }
+            showLoader();
+            setTimeout(() => {
+                const sName = sheet2Select.value;
+                const { rows, headers } = loadSheetToData(wb2, sName);
+                data2 = rows;
+                headers2 = headers;
+                info2.innerHTML = `<small>Sheet F2: <b>${sName}</b> | Baris: ${rows.length} | Kolom: ${headers.length}</small>`;
+                initKeySelectors();
+                initCompareSelectors();
+                hideLoader();
+            }, 10);
+        });
+
+        btnAddKey1.addEventListener('click', () => {
+            if (!headers1.length) { alert('Muat sheet File 1 dulu.'); return; }
+            key1Container.appendChild(createSelect(headers1, 'f1-key', key1Container));
+        });
+
+        btnAddKey2.addEventListener('click', () => {
+            if (!headers2.length) { alert('Muat sheet File 2 dulu.'); return; }
+            key2Container.appendChild(createSelect(headers2, 'f2-key', key2Container));
+        });
+
+        btnAddCmp1.addEventListener('click', () => {
+            if (!headers1.length) { alert('Muat sheet File 1 dulu.'); return; }
+            cmp1Container.appendChild(createSelect(headers1, 'c1-cmp', cmp1Container));
+        });
+
+        btnAddCmp2.addEventListener('click', () => {
+            if (!headers2.length) { alert('Muat sheet File 2 dulu.'); return; }
+            cmp2Container.appendChild(createSelect(headers2, 'c2-cmp', cmp2Container));
+        });
+
+        function getSelected(container, cls) {
+            return Array.from(container.querySelectorAll('select.' + cls))
+                .map(s => s.value)
+                .filter(v => v);
+        }
+
+        function buildCompositeKey(row, keyCols) {
+            return keyCols.map(k => String(row[k] ?? '')).join('||');
+        }
+
+        // ===== TOTAL (otomatis sum vs count, per pasangan F1/F2) =====
+        function computeTotalsForFilteredRows() {
+            const totals = {};
+            if (!rowsFiltered.length || !outputHeaders.length || !cmpPairsGlobal.length) return totals;
+
+            outputHeaders.forEach(h => { totals[h] = ''; });
+
+            cmpPairsGlobal.forEach(pair => {
+                const hdrF1 = pair.hdrF1;
+                const hdrF2 = pair.hdrF2;
+
+                let sumF1 = 0, sumF2 = 0;
+                let cntF1 = 0, cntF2 = 0;
+
+                // sampling untuk deteksi numeric
+                let sampleNumeric = 0, sampleTotal = 0;
+                rowsFiltered.slice(0, 20).forEach(obj => {
+                    [hdrF1, hdrF2].forEach(hdr => {
+                        const v = obj.row[hdr];
+                        if (v == null || v === '') return;
+                        const s = String(v);
+                        const numStr = s.replace(/[^0-9.\-]/g, '');
+                        const hasLetters = /[a-z]/i.test(s);
+                        const num = Number(numStr);
+                        if (!hasLetters && numStr !== '' && !isNaN(num)) sampleNumeric++;
+                        sampleTotal++;
+                    });
+                });
+                const treatAsNumeric = sampleTotal > 0 && sampleNumeric / sampleTotal > 0.8;
+
+                rowsFiltered.forEach(obj => {
+                    const v1 = obj.row[hdrF1];
+                    const v2 = obj.row[hdrF2];
+
+                    if (v1 != null && v1 !== '') {
+                        if (treatAsNumeric) {
+                            const s = String(v1);
+                            const numStr = s.replace(/[^0-9.\-]/g, '');
+                            const num = Number(numStr);
+                            if (!isNaN(num) && numStr !== '') sumF1 += num;
+                        }
+                        cntF1++;
+                    }
+                    if (v2 != null && v2 !== '') {
+                        if (treatAsNumeric) {
+                            const s = String(v2);
+                            const numStr = s.replace(/[^0-9.\-]/g, '');
+                            const num = Number(numStr);
+                            if (!isNaN(num) && numStr !== '') sumF2 += num;
+                        }
+                        cntF2++;
+                    }
+                });
+
+                if (treatAsNumeric) {
+                    totals[hdrF1] = sumF1;
+                    totals[hdrF2] = sumF2;
+                } else {
+                    totals[hdrF1] = `[F1] ${cntF1}`;
+                    totals[hdrF2] = `[F2] ${cntF2}`;
+                }
+            });
+
+            return totals;
+        }
+
+        function renderTable(filteredRowsPage) {
+            if (!outputHeaders.length) { resultTable.innerHTML = ''; return; }
+
+            const totals = computeTotalsForFilteredRows();
+
+            let html = '<table><thead><tr>';
+            outputHeaders.forEach(h => { html += `<th>${h}</th>`; });
+            html += '</tr></thead><tbody>';
+
+            filteredRowsPage.forEach(obj => {
+                html += `<tr class="${obj.cssClass}">`;
+                outputHeaders.forEach(h => {
+                    const value = obj.row[h] ?? '';
+                    const status = (obj.cellStatus && obj.cellStatus[h]) || 'normal';
+                    let style = '';
+                    if (status === 'only1') style = ' style="background:#e6f2ff"';
+                    else if (status === 'only2') style = ' style="background:#e6ffe6"';
+                    else if (status === 'diff')  style = ' style="background:#ffe6e6"';
+                    html += `<td${style}>${value}</td>`;
+                });
+                html += '</tr>';
+            });
+
+            // baris TOTAL
+            html += '<tr style="font-weight:bold;background:#f9f9f9">';
+            outputHeaders.forEach(h => {
+                if (h === 'source') html += '<td>TOTAL</td>';
+                else if (h === 'key_value') html += '<td></td>';
+                else {
+                    const v = totals[h] ?? '';
+                    html += `<td>${v}</td>`;
+                }
+            });
+            html += '</tr>';
+
+            html += '</tbody></table>';
+            resultTable.innerHTML = html;
+        }
+
+        function applyFilterToRows() {
+            const filterValue = exportFilter.value;
+            rowsFiltered = rowsOutput.filter(obj => {
+                if (filterValue === 'ALL') return true;
+                return obj.row.source === filterValue;
+            });
+            currentPage = 1;
+            updatePaginationAndRender();
+        }
+
+        function updatePaginationAndRender() {
+            if (!rowsFiltered.length) {
+                resultTable.innerHTML = '<small>Tidak ada data untuk ditampilkan.</small>';
+                paginationBar.classList.add('hidden');
+                return;
+            }
+
+            pageSize = parseInt(pageSizeSelect.value, 10) || 100;
+            const totalPages = Math.max(1, Math.ceil(rowsFiltered.length / pageSize));
+            if (currentPage > totalPages) currentPage = totalPages;
+
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageRows = rowsFiltered.slice(start, end);
+
+            renderTable(pageRows);
+
+            pageInfo.innerHTML = `<small>Halaman ${currentPage} / ${totalPages} &nbsp;|&nbsp; Total baris: ${rowsFiltered.length}</small>`;
+            paginationBar.classList.remove('hidden');
+
+            btnPrevPage.disabled = currentPage === 1;
+            btnNextPage.disabled = currentPage === totalPages;
+        }
+
+        btnPrevPage.addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                updatePaginationAndRender();
+            }
+        });
+
+        btnNextPage.addEventListener('click', () => {
+            const totalPages = Math.max(1, Math.ceil(rowsFiltered.length / pageSize));
+            if (currentPage < totalPages) {
+                currentPage++;
+                updatePaginationAndRender();
+            }
+        });
+
+        pageSizeSelect.addEventListener('change', () => {
+            currentPage = 1;
+            updatePaginationAndRender();
+        });
+
+        // ====== COMPARE ======
+        btnCompare.addEventListener('click', () => {
+            if (!data1.length || !data2.length) {
+                alert('Pastikan kedua file sudah diupload dan sheet sudah dimuat.');
+                return;
+            }
+
+            const keyCols1 = getSelected(key1Container, 'f1-key');
+            const keyCols2 = getSelected(key2Container, 'f2-key');
+
+            if (!keyCols1.length || !keyCols2.length) { alert('Minimal satu kolom key untuk masing-masing file.'); return; }
+            if (keyCols1.length !== keyCols2.length) {
+                alert('Jumlah key File 1 dan File 2 harus sama.');
+                return;
+            }
+
+            const cmpCols1 = getSelected(cmp1Container, 'c1-cmp');
+            const cmpCols2 = getSelected(cmp2Container, 'c2-cmp');
+            if (!cmpCols1.length || !cmpCols2.length) { alert('Minimal satu kolom compare untuk masing-masing file.'); return; }
+            if (cmpCols1.length !== cmpCols2.length) {
+                alert('Jumlah kolom compare File 1 dan File 2 harus sama.');
+                return;
+            }
+
+            const cmpPairs = cmpCols1.map((c1, i) => ({ f1: c1, f2: cmpCols2[i] }));
+            // tambah info nama header F1/F2
+            cmpPairsGlobal = cmpPairs.map(p => ({
+                f1: p.f1,
+                f2: p.f2,
+                hdrF1: `${p.f1}__F1`,
+                hdrF2: `${p.f2}__F2`
+            }));
+
+            showLoader();
+
+            setTimeout(() => {
+                const map1 = new Map();
+                data1.forEach(row => {
+                    const k = buildCompositeKey(row, keyCols1);
+                    if (k.trim() !== '') map1.set(k, row);
+                });
+
+                const map2 = new Map();
+                data2.forEach(row => {
+                    const k = buildCompositeKey(row, keyCols2);
+                    if (k.trim() !== '') map2.set(k, row);
+                });
+
+                const allKeys = new Set([...map1.keys(), ...map2.keys()]);
+
+                const pairHeadersF1 = cmpPairsGlobal.map(p => p.hdrF1);
+                const pairHeadersF2 = cmpPairsGlobal.map(p => p.hdrF2);
+
+                outputHeaders = ['source', 'key_value', ...pairHeadersF1, ...pairHeadersF2];
+                rowsOutput = [];
+
+                allKeys.forEach(k => {
+                    const r1 = map1.get(k) || null;
+                    const r2 = map2.get(k) || null;
+
+                    const row = { source: 'SAME', key_value: k };
+                    const cellStatus = {};
+
+                    if (r1 && !r2) {
+                        row.source = 'ONLY_FILE1';
+                        row['source'] = 'ONLY_FILE1';
+                        row['key_value'] = k;
+                        cellStatus['source'] = 'normal';
+                        cellStatus['key_value'] = 'normal';
+
+                        cmpPairsGlobal.forEach(p => {
+                            const v1 = r1[p.f1];
+                            row[p.hdrF1] = v1 ?? '';
+                            row[p.hdrF2] = '';
+                            cellStatus[p.hdrF1] = v1 !== undefined ? 'only1' : 'normal';
+                            cellStatus[p.hdrF2] = 'normal';
+                        });
+
+                    } else if (!r1 && r2) {
+                        row.source = 'ONLY_FILE2';
+                        row['source'] = 'ONLY_FILE2';
+                        row['key_value'] = k;
+                        cellStatus['source'] = 'normal';
+                        cellStatus['key_value'] = 'normal';
+
+                        cmpPairsGlobal.forEach(p => {
+                            const v2 = r2[p.f2];
+                            row[p.hdrF1] = '';
+                            row[p.hdrF2] = v2 ?? '';
+                            cellStatus[p.hdrF1] = 'normal';
+                            cellStatus[p.hdrF2] = v2 !== undefined ? 'only2' : 'normal';
+                        });
+
+                    } else if (r1 && r2) {
+                        let hasRealDiff = false;
+
+                        row['source'] = 'SAME';
+                        row['key_value'] = k;
+                        cellStatus['source'] = 'normal';
+                        cellStatus['key_value'] = 'normal';
+
+                        cmpPairsGlobal.forEach(p => {
+                            const v1 = r1[p.f1];
+                            const v2 = r2[p.f2];
+
+                            const exists1 = v1 !== undefined;
+                            const exists2 = v2 !== undefined;
+
+                            if (exists1 && !exists2) {
+                                row[p.hdrF1] = v1 ?? '';
+                                row[p.hdrF2] = '';
+                                cellStatus[p.hdrF1] = 'only1';
+                                cellStatus[p.hdrF2] = 'normal';
+                            } else if (!exists1 && exists2) {
+                                row[p.hdrF1] = '';
+                                row[p.hdrF2] = v2 ?? '';
+                                cellStatus[p.hdrF1] = 'normal';
+                                cellStatus[p.hdrF2] = 'only2';
+                            } else if (exists1 && exists2) {
+                                row[p.hdrF1] = v1 ?? '';
+                                row[p.hdrF2] = v2 ?? '';
+                                if (v1 === v2) {
+                                    cellStatus[p.hdrF1] = 'normal';
+                                    cellStatus[p.hdrF2] = 'normal';
+                                } else {
+                                    cellStatus[p.hdrF1] = 'diff';
+                                    cellStatus[p.hdrF2] = 'diff';
+                                    hasRealDiff = true;
+                                }
+                            } else {
+                                row[p.hdrF1] = '';
+                                row[p.hdrF2] = '';
+                                cellStatus[p.hdrF1] = 'normal';
+                                cellStatus[p.hdrF2] = 'normal';
+                            }
+                        });
+
+                        if (hasRealDiff) row.source = 'DIFF';
+                    }
+
+                    let cssClass = '';
+                    if (row.source === 'ONLY_FILE1') cssClass = 'only1-row';
+                    else if (row.source === 'ONLY_FILE2') cssClass = 'only2-row';
+                    else if (row.source === 'DIFF') cssClass = 'diff-row';
+
+                    rowsOutput.push({ row, cssClass, cellStatus });
+                });
+
+                const countOnly1 = rowsOutput.filter(r => r.row.source === 'ONLY_FILE1').length;
+                const countOnly2 = rowsOutput.filter(r => r.row.source === 'ONLY_FILE2').length;
+                const countDiff  = rowsOutput.filter(r => r.row.source === 'DIFF').length;
+
+                resultInfo.innerHTML =
+                    `<small>Total key unik: ${allKeys.size} | ONLY_FILE1: ${countOnly1}, ONLY_FILE2: ${countOnly2}, DIFF: ${countDiff}</small>`;
+
+                btnExportExcel.classList.remove('hidden');
+
+                applyFilterToRows();
+
+                hideLoader();
+            }, 10);
+        });
+
+        exportFilter.addEventListener('change', () => {
+            if (!rowsOutput.length) return;
+            applyFilterToRows();
+        });
+
+        // helper: ubah string numerik jadi number (supaya Excel treat as number)
+        function toMaybeNumber(value) {
+            if (value === null || value === undefined || value === '') return '';
+            const str = String(value).trim();
+            // jika ada huruf, jangan dipaksa
+            if (/[a-z]/i.test(str)) return value;
+            // buang spasi ribuan, ganti koma ke titik (kalau ada)
+            const normalized = str.replace(/\s+/g, '').replace(/\./g, '').replace(',', '.');
+            const num = Number(normalized);
+            return isNaN(num) ? value : num;
+        }
+
+        // ====== EXPORT EXCEL ======
+        btnExportExcel.addEventListener('click', () => {
+            if (!rowsOutput.length) { alert('Tidak ada data untuk diexport.'); return; }
+
+            const rowsForExport = rowsFiltered.length ? rowsFiltered : rowsOutput;
+            if (!rowsForExport.length) {
+                alert('Tidak ada baris yang cocok dengan filter export.');
+                return;
+            }
+
+            const dataExport = [];
+            dataExport.push(outputHeaders);
+            rowsForExport.forEach(obj => {
+                const row = [];
+                outputHeaders.forEach(h => {
+                    const raw = obj.row[h] ?? '';
+                    row.push(toMaybeNumber(raw));   // ubah numerik jadi number
+                });
+                dataExport.push(row);
+            });
+
+            const totals = computeTotalsForFilteredRows();
+            const totalRow = outputHeaders.map(h => {
+                if (h === 'source') return 'TOTAL';
+                if (h === 'key_value') return '';
+                return toMaybeNumber(totals[h] ?? '');  // total numerik juga jadi number
+            });
+            dataExport.push(totalRow);
+
+            const ws = XLSX.utils.aoa_to_sheet(dataExport);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Perbandingan');
+
+            const colWidths = outputHeaders.map(h => ({ wch: Math.min(Math.max(h.length, 15), 50) }));
+            ws['!cols'] = colWidths;
+
+            // header style
+            for (let c = 0; c < outputHeaders.length; c++) {
+                const cellRef = XLSX.utils.encode_cell({ r: 0, c });
+                if (!ws[cellRef]) ws[cellRef] = { t: 's', v: outputHeaders[c] };
+                ws[cellRef].s = { fill: { fgColor: { rgb: 'F2F2F2' } }, font: { bold: true } };
+            }
+
+            // set tipe number + format untuk semua sel numerik
+            const range = XLSX.utils.decode_range(ws['!ref']);
+            for (let R = 1; R <= range.e.r; ++R) { // mulai dari baris 1 (skip header)
+                for (let C = 0; C <= range.e.c; ++C) {
+                    const addr = XLSX.utils.encode_cell({ r: R, c: C });
+                    const cell = ws[addr];
+                    if (!cell) continue;
+                    if (typeof cell.v === 'number') {
+                        cell.t = 'n';
+                        cell.z = '#,##0.00';   // Excel akan pakai ,/. sesuai locale
+                    }
+                }
+            }
+
+            // warna baris data
+            let rowIndex = 1;
+            rowsForExport.forEach(obj => {
+                let baseColor = 'FFFFFF';
+                if (obj.row.source === 'ONLY_FILE1') baseColor = 'E6F2FF';
+                else if (obj.row.source === 'ONLY_FILE2') baseColor = 'E6FFE6';
+                else if (obj.row.source === 'DIFF') baseColor = 'FFE6E6';
+
+                for (let c = 0; c < outputHeaders.length; c++) {
+                    const header = outputHeaders[c];
+                    const status = (obj.cellStatus && obj.cellStatus[header]) || 'normal';
+                    let rgbColor = baseColor;
+                    if (status === 'only1') rgbColor = 'E6F2FF';
+                    else if (status === 'only2') rgbColor = 'E6FFE6';
+                    else if (status === 'diff')  rgbColor = 'FFE6E6';
+
+                    const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c });
+                    if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' };
+                    // pertahankan z yang sudah di-set untuk numerik
+                    const existing = ws[cellRef].z;
+                    ws[cellRef].s = { fill: { fgColor: { rgb: rgbColor } } };
+                    if (existing) ws[cellRef].z = existing;
+                }
+                rowIndex++;
+            });
+
+            // styling baris TOTAL
+            const totalRowIndex = dataExport.length - 1;
+            for (let c = 0; c < outputHeaders.length; c++) {
+                const cellRef = XLSX.utils.encode_cell({ r: totalRowIndex, c });
+                if (!ws[cellRef]) continue;
+                const existing = ws[cellRef].z;
+                ws[cellRef].s = {
+                    fill: { fgColor: { rgb: 'F9F9F9' } },
+                    font: { bold: true }
+                };
+                if (existing) ws[cellRef].z = existing;
+            }
+
+            const filterValue = exportFilter.value;
+            const fileName = `compare_result_${filterValue}_${new Date().getTime()}.xlsx`;
+            XLSX.writeFile(wb, fileName);
+        });
+
+        // ====== RESET ======
+        btnReset.addEventListener('click', () => {
+            data1 = [];
+            data2 = [];
+            headers1 = [];
+            headers2 = [];
+            rowsOutput = [];
+            rowsFiltered = [];
+            outputHeaders = [];
+            wb1 = null;
+            wb2 = null;
+            cmpPairsGlobal = [];
+            file1Input.value = '';
+            file2Input.value = '';
+            key1Container.innerHTML = '';
+            key2Container.innerHTML = '';
+            cmp1Container.innerHTML = '';
+            cmp2Container.innerHTML = '';
+            info1.innerHTML = '<small>Belum ada file.</small>';
+            info2.innerHTML = '<small>Belum ada file.</small>';
+            resultInfo.innerHTML = '<small>Belum ada hasil.</small>';
+            resultTable.innerHTML = '';
+            btnExportExcel.classList.add('hidden');
+            sheet1Wrapper.classList.add('hidden');
+            sheet2Wrapper.classList.add('hidden');
+            sheet1Select.innerHTML = '';
+            sheet2Select.innerHTML = '';
+            paginationBar.classList.add('hidden');
+        });
+    </script>
+</body>
+</html>
